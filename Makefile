@@ -7,7 +7,7 @@ DOCKER_ARCH := "amd64" "arm v7" "arm64 v8"
 BINS := $(addprefix bin/$(ARCH)/,generic-device-plugin)
 PROJECT := generic-device-plugin
 PKG := github.com/squat/$(PROJECT)
-REGISTRY ?= index.docker.io
+REGISTRY ?= us-docker.pkg.dev/gimlet-dev-infra-0/gimlet-dev-infra-public-docker-artifacts
 IMAGE ?= $(REGISTRY)/squat/$(PROJECT)
 
 TAG := $(shell git describe --abbrev=0 --tags HEAD 2>/dev/null)
@@ -154,11 +154,13 @@ container-name:
 
 manifest: .manifest-$(VERSION) manifest-name
 .manifest-$(VERSION): Dockerfile $(addprefix push-, $(ALL_ARCH))
+	@docker manifest rm $(IMAGE):$(VERSION)
 	@docker manifest create --amend $(IMAGE):$(VERSION) $(addsuffix -$(VERSION), $(addprefix $(IMAGE):, $(ALL_ARCH)))
 	@$(MAKE) --no-print-directory manifest-annotate-$(VERSION)
 	@docker manifest push $(IMAGE):$(VERSION) > $@
 
 manifest-latest: Dockerfile $(addprefix push-latest-, $(ALL_ARCH))
+	@docker manifest rm $(IMAGE):latest
 	@docker manifest create --amend $(IMAGE):latest $(addsuffix -latest, $(addprefix $(IMAGE):, $(ALL_ARCH)))
 	@$(MAKE) --no-print-directory manifest-annotate-latest
 	@docker manifest push $(IMAGE):latest
