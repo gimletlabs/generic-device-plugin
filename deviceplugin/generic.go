@@ -72,6 +72,8 @@ type Group struct {
 	// When the paths have differing cardinalities, that is, the globs match different numbers of devices,
 	// the cardinality of each path is capped at the lowest cardinality.
 	Paths []*Path `json:"paths"`
+	// Video creates a group of video devices.
+	Video bool `json:"video"`
 	// USBSpecs is the list of USB specifications that this device group consists of.
 	USBSpecs []*USBSpec `json:"usb"`
 	// Count specifies how many times this group can be mounted concurrently.
@@ -91,10 +93,11 @@ type device struct {
 // * be found using either a file path or a USB identifier; and
 // * mounted and used without special logic.
 type GenericPlugin struct {
-	ds                 *DeviceSpec
-	devices            map[string]device
-	logger             log.Logger
-	enableUSBDiscovery bool
+	ds                   *DeviceSpec
+	devices              map[string]device
+	logger               log.Logger
+	enableVideoDiscovery bool
+	enableUSBDiscovery   bool
 	// Allows us to abstract away the file system for testing.
 	fs fs.FS
 	mu sync.Mutex
@@ -105,17 +108,18 @@ type GenericPlugin struct {
 }
 
 // NewGenericPlugin creates a new plugin for a generic device.
-func NewGenericPlugin(ds *DeviceSpec, pluginDir string, logger log.Logger, reg prometheus.Registerer, enableUSBDiscovery bool) Plugin {
+func NewGenericPlugin(ds *DeviceSpec, pluginDir string, logger log.Logger, reg prometheus.Registerer, enableUSBDiscovery, enableVideoDiscovery bool) Plugin {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
 
 	gp := &GenericPlugin{
-		ds:                 ds,
-		devices:            make(map[string]device),
-		logger:             logger,
-		enableUSBDiscovery: enableUSBDiscovery,
-		fs:                 absolute.New(os.DirFS("/"), "/"),
+		ds:                   ds,
+		devices:              make(map[string]device),
+		logger:               logger,
+		enableUSBDiscovery:   enableUSBDiscovery,
+		enableVideoDiscovery: enableVideoDiscovery,
+		fs:                   absolute.New(os.DirFS("/"), "/"),
 		deviceGauge: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "generic_device_plugin_devices",
 			Help: "The number of devices managed by this device plugin.",
@@ -134,21 +138,30 @@ func NewGenericPlugin(ds *DeviceSpec, pluginDir string, logger log.Logger, reg p
 }
 
 func (gp *GenericPlugin) discover() (devices []device, err error) {
+	level.Debug(gp.logger).Log("msg", "discovering devices")
 	path, err := gp.discoverPath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover path devices: %w", err)
 	}
 
-	if !gp.enableUSBDiscovery {
-		return path, nil
+	if gp.enableVideoDiscovery {
+		level.Debug(gp.logger).Log("msg", "discovering video devices")
+		video, err := gp.discoverVideo()
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover video devices: %w", err)
+		}
+		path = append(path, video...)
 	}
 
-	usb, err := gp.discoverUSB()
-	if err != nil {
-		return nil, fmt.Errorf("failed to discover usb devices: %w", err)
+	if gp.enableUSBDiscovery {
+		level.Debug(gp.logger).Log("msg", "discovering usb devices")
+		usb, err := gp.discoverUSB()
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover usb devices: %w", err)
+		}
+		path = append(path, usb...)
 	}
-	// This action just bolts the usb entries onto the path ones, but we're not too worried about reuse since we're about to return anyway.
-	return append(path, usb...), nil
+	return path, nil
 }
 
 // refreshDevices updates the devices available to the

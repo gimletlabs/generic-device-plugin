@@ -107,6 +107,12 @@ func Main() error {
 					dsr.Name,
 				)
 			}
+			if len(g.Paths) > 0 && g.Video {
+				return fmt.Errorf(
+					"failed to parse device %q; cannot define both path and video at the same time",
+					dsr.Name,
+				)
+			}
 			if len(g.USBSpecs) > 0 {
 				// Should test USB can be used.
 				shouldTestUSBAvailable = true
@@ -204,15 +210,19 @@ func Main() error {
 		d := deviceSpecs[i]
 
 		enableUSBDiscovery := false
+		enableVideoDiscovery := false
 		for _, g := range d.Groups {
 			if len(g.USBSpecs) > 0 {
 				enableUSBDiscovery = true
 				break
 			}
+			if g.Video {
+				enableVideoDiscovery = true
+			}
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
-		gp := deviceplugin.NewGenericPlugin(d, pluginPath, log.With(logger, "resource", d.Name), prometheus.WrapRegistererWith(prometheus.Labels{"resource": d.Name}, r), enableUSBDiscovery)
+		gp := deviceplugin.NewGenericPlugin(d, pluginPath, log.With(logger, "resource", d.Name), prometheus.WrapRegistererWith(prometheus.Labels{"resource": d.Name}, r), enableUSBDiscovery, enableVideoDiscovery)
 		// Start the generic device plugin server.
 		g.Add(func() error {
 			logger.Log("msg", fmt.Sprintf("Starting the generic-device-plugin for %q.", d.Name))
