@@ -31,8 +31,15 @@ import (
 const (
 	videoDevicesDir = "/dev/"
 
-	VIDIOC_QUERYCAP        = 0x80685600
+	VIDIOC_QUERYCAP = 0x80685600
+	VIDIOC_G_FMT    = 0xC0D05604
+
 	V4L2_CAP_VIDEO_CAPTURE = 0x00000001
+
+	V4L2_BUF_TYPE_VIDEO_CAPTURE = 1
+
+	PIX_FMT_YUYV = 'Y' | 'U'<<8 | 'Y'<<16 | 'V'<<24
+	PIX_FMT_MJPG = 'M' | 'J'<<8 | 'P'<<16 | 'G'<<24
 )
 
 type v4l2_capability struct {
@@ -43,6 +50,27 @@ type v4l2_capability struct {
 	capabilities uint32
 	device_caps  uint32
 	reserved     [3]uint32
+}
+
+type v4l2_format struct {
+	buf_type uint32
+	_        uint32 // padding
+	data     [200]byte
+}
+
+type v4l2_pix_format struct {
+	width          uint32
+	height         uint32
+	pix_format     uint32
+	field          uint32
+	bytes_per_line uint32
+	size_image     uint32
+	color_space    uint32
+	priv           uint32
+	flags          uint32
+	ycbcr_enc      uint32
+	quantization   uint32
+	xfer_func      uint32
 }
 
 // videoDevice represents a video capture device.
@@ -84,12 +112,22 @@ func (gp *GenericPlugin) enumerateVideoDevices(fsys fs.FS, dir string) ([]videoD
 			level.Warn(gp.logger).Log("msg", fmt.Sprintf("Couldn't open device %s", devPath))
 			continue
 		}
-		cap := v4l2_capability{}
-		ioctl(fd, VIDIOC_QUERYCAP, unsafe.Pointer(&cap))
-		if cap.device_caps&V4L2_CAP_VIDEO_CAPTURE == 0 {
+		capability := v4l2_capability{}
+		ioctl(fd, VIDIOC_QUERYCAP, unsafe.Pointer(&capability))
+		if capability.device_caps&V4L2_CAP_VIDEO_CAPTURE == 0 {
 			level.Debug(gp.logger).Log("msg", fmt.Sprintf("Device doesn't have V4L2_CAP_VIDEO_CAPTURE %s", devPath))
 			continue
 		}
+
+		format := v4l2_format{}
+		format.buf_type = V4L2_BUF_TYPE_VIDEO_CAPTURE
+		ioctl(fd, VIDIOC_G_FMT, unsafe.Pointer(&format))
+		pixFormat := (*v4l2_pix_format)(unsafe.Pointer(&format.data[0]))
+		if pixFormat.pix_format != PIX_FMT_YUYV && pixFormat.pix_format != PIX_FMT_MJPG {
+			level.Debug(gp.logger).Log("msg", fmt.Sprintf("Device doesn't have PIX_FMT_YUYV or PIX_FMT_MJPG %s", devPath))
+			continue
+		}
+
 		outDevs = append(outDevs, videoDevice{
 			path: devPath,
 		})
